@@ -14,7 +14,7 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
-// Route 1: Add words in batches of 50
+// Route 1: Add words in batches of 50 (skip duplicates)
 // POST /api/vocabulary/bulk
 app.post('/api/vocabulary/bulk', async (req, res) => {
   try {
@@ -36,9 +36,10 @@ app.post('/api/vocabulary/bulk', async (req, res) => {
       });
     }
 
+    // Use ignoreDuplicates to skip existing words
     const { data, error } = await supabase
       .from('vocabulary')
-      .insert(batch)
+      .insert(batch, { ignoreDuplicates: true })
       .select();
 
     if (error) {
@@ -50,7 +51,9 @@ app.post('/api/vocabulary/bulk', async (req, res) => {
 
     res.status(201).json({
       message: 'Batch added successfully',
-      batchSize: data.length,
+      batchSize: batch.length,
+      addedCount: data ? data.length : 0, // Actual number of new words added
+      skippedCount: batch.length - (data ? data.length : 0), // Duplicates skipped
       totalProcessed: newOffset,
       totalWords: words.length,
       hasMore,
@@ -113,19 +116,19 @@ app.delete('/api/vocabulary/:word', async (req, res) => {
 // Route 4: Get 10 random words
 // GET /api/vocabulary/random
 app.get('/api/vocabulary/random', async (req, res) => {
-    try {
-      const { data, error } = await supabase
-        .rpc('get_random_vocabulary', { limit_count: 10 });
-  
-      if (error) {
-        return res.status(400).json({ error: error.message });
-      }
-  
-      res.status(200).json(data);
-    } catch (err) {
-      res.status(500).json({ error: 'Server error', details: err.message });
+  try {
+    const { data, error } = await supabase
+      .rpc('get_random_vocabulary', { limit_count: 10 });
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
     }
-  });
+
+    res.status(200).json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error', details: err.message });
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
