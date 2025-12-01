@@ -14,7 +14,7 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
-// Route 1: Add words (skip duplicates)
+// Route 1: Add words one by one (skip duplicates)
 // POST /api/vocabulary/bulk
 app.post('/api/vocabulary/bulk', async (req, res) => {
   try {
@@ -25,22 +25,48 @@ app.post('/api/vocabulary/bulk', async (req, res) => {
       return res.status(400).json({ error: 'Invalid input. Expected words array.' });
     }
 
-    // Use ignoreDuplicates to skip existing words
-    const { data, error } = await supabase
-      .from('vocabulary')
-      .insert(words, { ignoreDuplicates: true })
-      .select();
+    const results = {
+      added: [],
+      skipped: [],
+      errors: []
+    };
 
-    if (error) {
-      return res.status(400).json({ error: error.message });
+    // Process each word individually
+    for (const word of words) {
+      try {
+        const { data, error } = await supabase
+          .from('vocabulary')
+          .insert([word])
+          .select();
+
+        if (error) {
+          // Check if it's a duplicate key error
+          if (error.code === '23505' || error.message.includes('duplicate')) {
+            results.skipped.push(word.word);
+          } else {
+            results.errors.push({
+              word: word.word,
+              error: error.message
+            });
+          }
+        } else if (data && data.length > 0) {
+          results.added.push(data[0]);
+        }
+      } catch (err) {
+        results.errors.push({
+          word: word.word,
+          error: err.message
+        });
+      }
     }
 
     res.status(201).json({
-      message: 'Words added successfully',
+      message: 'Bulk insert completed',
       totalSent: words.length,
-      addedCount: data ? data.length : 0, // Actual number of new words added
-      skippedCount: words.length - (data ? data.length : 0), // Duplicates skipped
-      data
+      addedCount: results.added.length,
+      skippedCount: results.skipped.length,
+      errorCount: results.errors.length,
+      results
     });
   } catch (err) {
     res.status(500).json({ error: 'Server error', details: err.message });
