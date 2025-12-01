@@ -113,35 +113,19 @@ app.delete('/api/vocabulary/:word', async (req, res) => {
 // Route 4: Get 10 random words
 // GET /api/vocabulary/random
 app.get('/api/vocabulary/random', async (req, res) => {
-  try {
-    // First, get the total count
-    const { count, error: countError } = await supabase
-      .from('vocabulary')
-      .select('*', { count: 'exact', head: true });
-
-    if (countError) {
-      return res.status(400).json({ error: countError.message });
+    try {
+      const { data, error } = await supabase
+        .rpc('get_random_vocabulary', { limit_count: 10 });
+  
+      if (error) {
+        return res.status(400).json({ error: error.message });
+      }
+  
+      res.status(200).json(data);
+    } catch (err) {
+      res.status(500).json({ error: 'Server error', details: err.message });
     }
-
-    // If less than 10 words, return all
-    const limit = Math.min(10, count);
-
-    // Get random words using PostgreSQL's random() function
-    const { data, error } = await supabase
-      .from('vocabulary')
-      .select('word, meaning, synonyms')
-      .order('random()')
-      .limit(limit);
-
-    if (error) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    res.status(200).json(data);
-  } catch (err) {
-    res.status(500).json({ error: 'Server error', details: err.message });
-  }
-});
+  });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
