@@ -14,50 +14,32 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
-// Route 1: Add words in batches of 50 (skip duplicates)
+// Route 1: Add words (skip duplicates)
 // POST /api/vocabulary/bulk
 app.post('/api/vocabulary/bulk', async (req, res) => {
   try {
-    const { words, offset = 0 } = req.body; // Expecting {words: [...], offset: number}
+    const { words } = req.body; // Expecting {words: [...]}
     
     // Validate input
     if (!Array.isArray(words) || words.length === 0) {
       return res.status(400).json({ error: 'Invalid input. Expected words array.' });
     }
 
-    // Get 50 words starting from offset
-    const batch = words.slice(offset, offset + 50);
-    
-    if (batch.length === 0) {
-      return res.status(200).json({
-        message: 'No more words to add',
-        completed: true,
-        totalProcessed: offset
-      });
-    }
-
     // Use ignoreDuplicates to skip existing words
     const { data, error } = await supabase
       .from('vocabulary')
-      .insert(batch, { ignoreDuplicates: true })
+      .insert(words, { ignoreDuplicates: true })
       .select();
 
     if (error) {
       return res.status(400).json({ error: error.message });
     }
 
-    const newOffset = offset + batch.length;
-    const hasMore = newOffset < words.length;
-
     res.status(201).json({
-      message: 'Batch added successfully',
-      batchSize: batch.length,
+      message: 'Words added successfully',
+      totalSent: words.length,
       addedCount: data ? data.length : 0, // Actual number of new words added
-      skippedCount: batch.length - (data ? data.length : 0), // Duplicates skipped
-      totalProcessed: newOffset,
-      totalWords: words.length,
-      hasMore,
-      nextOffset: hasMore ? newOffset : null,
+      skippedCount: words.length - (data ? data.length : 0), // Duplicates skipped
       data
     });
   } catch (err) {
