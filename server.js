@@ -165,16 +165,40 @@ app.post('/api/vocabulary/bulk', async (req, res) => {
 // GET /api/vocabulary
 app.get('/api/vocabulary', async (req, res) => {
   try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 30;
+    const offset = (page - 1) * limit;
+
+    // Get total count
+    const { count, error: countError } = await supabase
+      .from('vocabulary')
+      .select('*', { count: 'exact', head: true });
+
+    if (countError) {
+      return res.status(400).json({ error: countError.message });
+    }
+
+    // Get paginated data
     const { data, error } = await supabase
       .from('vocabulary')
       .select('word, meaning, synonyms, group_name')
-      .order('word', { ascending: true });
+      .order('id', { ascending: true })
+      .range(offset, offset + limit - 1);
 
     if (error) {
       return res.status(400).json({ error: error.message });
     }
 
-    res.status(200).json(data);
+    res.status(200).json({
+      data: data,
+      pagination: {
+        page: page,
+        limit: limit,
+        total: count,
+        totalPages: Math.ceil(count / limit),
+        hasMore: offset + limit < count
+      }
+    });
   } catch (err) {
     res.status(500).json({ error: 'Server error', details: err.message });
   }
