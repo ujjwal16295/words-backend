@@ -11,7 +11,7 @@ app.use(express.json());
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -19,10 +19,12 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
-// Helper function to get group name using Gemini AI
-async function getGroupNameForWords(newWords, existingGroups) {
+// Helper function to get group names and sentences using Gemini AI
+async function getGroupNamesAndSentences(newWords, existingGroups) {
   try {
-    const prompt = `You are a vocabulary grouping assistant. Your task is to assign group names to new words based on their meanings.
+    const prompt = `You are a vocabulary assistant. Your task is to:
+1. Assign group names to words based on their meanings
+2. Create example sentences showing proper usage of each word
 
 Existing groups in database:
 ${existingGroups.length > 0 ? existingGroups.map(g => `- "${g}"`).join('\n') : 'No existing groups yet'}
@@ -30,22 +32,29 @@ ${existingGroups.length > 0 ? existingGroups.map(g => `- "${g}"`).join('\n') : '
 New words to categorize:
 ${newWords.map(w => `Word: "${w.word}" - Meaning: "${w.meaning}"`).join('\n')}
 
-Rules:
-1. If a new word's meaning matches an existing group, assign it to that group
+Rules for grouping:
+1. If a word's meaning matches an existing group, assign it to that group
 2. If no existing group matches, create a NEW simple group name (2-4 words max)
-3. Group names should be simple, easy meanings like "feeling happy", "movement verbs", "time related", etc.
-4. Multiple new words with similar meanings should get the SAME group name
-5. Be consistent - similar meanings = same group
+3. Group names should be simple like "feeling happy", "movement verbs", "time related", etc.
+4. Multiple words with similar meanings should get the SAME group name
+
+Rules for sentences:
+1. Create ONE clear, natural sentence for each word
+2. The sentence should demonstrate the word's meaning in context
+3. Keep sentences simple and easy to understand (10-20 words)
+4. Use the exact word provided (match the case)
 
 Return ONLY a valid JSON array with this exact structure:
 [
   {
     "word": "word1",
-    "group_name": "simple group name"
+    "group_name": "simple group name",
+    "sentence": "A clear example sentence using word1 in context."
   },
   {
     "word": "word2", 
-    "group_name": "simple group name"
+    "group_name": "simple group name",
+    "sentence": "A clear example sentence using word2 in context."
   }
 ]
 
@@ -58,17 +67,21 @@ Return ONLY the JSON array, no other text.`;
     // Clean up response
     const cleanedText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     
-    const groupAssignments = JSON.parse(cleanedText);
-    return groupAssignments;
+    const assignments = JSON.parse(cleanedText);
+    return assignments;
     
   } catch (error) {
-    console.error('Error getting group names from AI:', error);
-    // Fallback: return words without groups
-    return newWords.map(w => ({ word: w.word, group_name: null }));
+    console.error('Error getting data from AI:', error);
+    // Fallback: return words without groups and sentences
+    return newWords.map(w => ({ 
+      word: w.word, 
+      group_name: null,
+      sentence: null 
+    }));
   }
 }
 
-// Route 1: Add words with AI grouping (skip duplicates)
+// Route 1: Add words with AI grouping and sentence generation (skip duplicates)
 // POST /api/vocabulary/bulk
 app.post('/api/vocabulary/bulk', async (req, res) => {
   try {
@@ -95,16 +108,16 @@ app.post('/api/vocabulary/bulk', async (req, res) => {
 
     console.log('Existing groups:', existingGroups);
 
-    // Step 2: Use AI to assign groups to new words
-    let groupAssignments = [];
+    // Step 2: Use AI to assign groups and generate sentences
+    let assignments = [];
     try {
-      groupAssignments = await getGroupNameForWords(words, existingGroups);
-      console.log('AI group assignments:', groupAssignments);
+      assignments = await getGroupNamesAndSentences(words, existingGroups);
+      console.log('AI assignments:', assignments);
     } catch (aiError) {
-      console.error('AI grouping failed, proceeding without groups:', aiError);
+      console.error('AI processing failed, proceeding without groups/sentences:', aiError);
     }
 
-    // Step 3: Process each word with assigned group
+    // Step 3: Process each word with assigned group and sentence
     const results = {
       added: [],
       skipped: [],
@@ -113,9 +126,10 @@ app.post('/api/vocabulary/bulk', async (req, res) => {
 
     for (const word of words) {
       try {
-        // Find the group assignment for this word
-        const assignment = groupAssignments.find(a => a.word === word.word);
+        // Find the assignment for this word
+        const assignment = assignments.find(a => a.word === word.word);
         const groupName = assignment ? assignment.group_name : null;
+        const sentence = assignment ? assignment.sentence : null;
 
         const { data, error } = await supabase
           .from('vocabulary')
@@ -123,7 +137,8 @@ app.post('/api/vocabulary/bulk', async (req, res) => {
             word: word.word,
             meaning: word.meaning,
             synonyms: word.synonyms || [],
-            group_name: groupName
+            group_name: groupName,
+            sentence: sentence
           }])
           .select();
 
@@ -148,12 +163,12 @@ app.post('/api/vocabulary/bulk', async (req, res) => {
     }
 
     res.status(201).json({
-      message: 'Bulk insert completed with AI grouping',
+      message: 'Bulk insert completed with AI grouping and sentences',
       totalSent: words.length,
       addedCount: results.added.length,
       skippedCount: results.skipped.length,
       errorCount: results.errors.length,
-      aiGroupingUsed: groupAssignments.length > 0,
+      aiProcessingUsed: assignments.length > 0,
       results
     });
   } catch (err) {
@@ -161,12 +176,12 @@ app.post('/api/vocabulary/bulk', async (req, res) => {
   }
 });
 
-// Route 2: Get all words from database
+// Route 2: Get all words from database (with pagination)
 // GET /api/vocabulary
 app.get('/api/vocabulary', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 30;
+    const limit = parseInt(req.query.limit) || 50;
     const offset = (page - 1) * limit;
 
     // Get total count
@@ -178,10 +193,10 @@ app.get('/api/vocabulary', async (req, res) => {
       return res.status(400).json({ error: countError.message });
     }
 
-    // Get paginated data
+    // Get paginated data with sentence
     const { data, error } = await supabase
       .from('vocabulary')
-      .select('word, meaning, synonyms, group_name')
+      .select('word, meaning, synonyms, group_name, sentence')
       .order('id', { ascending: true })
       .range(offset, offset + limit - 1);
 
@@ -233,7 +248,7 @@ app.delete('/api/vocabulary/:word', async (req, res) => {
   }
 });
 
-// Route 4: Get 10 random words
+// Route 4: Get 10 random words (with sentences)
 // GET /api/vocabulary/random
 app.get('/api/vocabulary/random', async (req, res) => {
   try {
@@ -256,7 +271,7 @@ app.get('/api/vocabulary/groups', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('vocabulary')
-      .select('word, meaning, synonyms, group_name')
+      .select('word, meaning, synonyms, group_name, sentence')
       .not('group_name', 'is', null)
       .order('group_name', { ascending: true });
 
@@ -273,7 +288,8 @@ app.get('/api/vocabulary/groups', async (req, res) => {
       groups[word.group_name].push({
         word: word.word,
         meaning: word.meaning,
-        synonyms: word.synonyms
+        synonyms: word.synonyms,
+        sentence: word.sentence
       });
     });
 
