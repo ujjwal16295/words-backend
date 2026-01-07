@@ -299,6 +299,25 @@ app.get('/api/vocabulary/groups', async (req, res) => {
   }
 });
 
+app.get('/api/vocabulary/tones', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('vocabulary')
+      .select('word, meaning, synonyms, group_name, sentence')
+      .gte('id', 462)
+      .lte('id', 482)
+      .order('id', { ascending: true });
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    res.status(200).json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error', details: err.message });
+  }
+});
+
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'OK',
