@@ -304,8 +304,8 @@ app.get('/api/vocabulary/tones', async (req, res) => {
     const { data, error } = await supabase
       .from('vocabulary')
       .select('word, meaning, synonyms, group_name, sentence')
-      .gte('id', 462)
-      .lte('id', 482)
+      .gte('id', 484)
+      .lte('id', 503)
       .order('id', { ascending: true });
 
     if (error) {
