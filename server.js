@@ -318,6 +318,85 @@ app.get('/api/vocabulary/tones', async (req, res) => {
   }
 });
 
+// Route 6: Toggle star status for a word
+// PATCH /api/vocabulary/:word/star
+app.patch('/api/vocabulary/:word/star', async (req, res) => {
+  try {
+    const { word } = req.params;
+    const { is_starred } = req.body;
+
+    if (typeof is_starred !== 'boolean') {
+      return res.status(400).json({ error: 'is_starred must be a boolean' });
+    }
+
+    const { data, error } = await supabase
+      .from('vocabulary')
+      .update({ is_starred })
+      .eq('word', word)
+      .select();
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: 'Word not found' });
+    }
+
+    res.status(200).json({
+      message: `Word "${word}" ${is_starred ? 'starred' : 'unstarred'} successfully`,
+      word: data[0],
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error', details: err.message });
+  }
+});
+
+// Route 7: Get all starred words (with pagination)
+// GET /api/vocabulary/starred
+app.get('/api/vocabulary/starred', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = (page - 1) * limit;
+
+    // Get total count of starred words
+    const { count, error: countError } = await supabase
+      .from('vocabulary')
+      .select('*', { count: 'exact', head: true })
+      .eq('is_starred', true);
+
+    if (countError) {
+      return res.status(400).json({ error: countError.message });
+    }
+
+    // Get paginated starred words
+    const { data, error } = await supabase
+      .from('vocabulary')
+      .select('word, meaning, synonyms, group_name, sentence, is_starred')
+      .eq('is_starred', true)
+      .order('id', { ascending: true })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    res.status(200).json({
+      data,
+      pagination: {
+        page,
+        limit,
+        total: count,
+        totalPages: Math.ceil(count / limit),
+        hasMore: offset + limit < count,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error', details: err.message });
+  }
+});
+
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'OK',
