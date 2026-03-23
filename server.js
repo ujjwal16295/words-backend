@@ -195,10 +195,10 @@ app.get('/api/vocabulary', async (req, res) => {
 
     // Get paginated data with sentence
     const { data, error } = await supabase
-      .from('vocabulary')
-      .select('word, meaning, synonyms, group_name, sentence')
-      .order('id', { ascending: true })
-      .range(offset, offset + limit - 1);
+    .from('vocabulary')
+    .select('word, meaning, synonyms, group_name, sentence, is_starred')  // ✅ added
+    .order('id', { ascending: true })
+    .range(offset, offset + limit - 1);
 
     if (error) {
       return res.status(400).json({ error: error.message });
